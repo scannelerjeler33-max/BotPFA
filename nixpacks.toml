@@ -1,0 +1,5 @@
+[phases.setup]
+nixPkgs = ["python312", "postgresql"]
+
+[start]
+cmd = "python BotCoins.py"
