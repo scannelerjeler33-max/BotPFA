@@ -1,8 +1,17 @@
+import sys
 import discord
 from discord.ext import commands
 import os
 from aiohttp import web
 from dotenv import load_dotenv
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    except Exception:
+        pass
+
 from utils.core import ejecutar_mantenimiento_db
 
 # Cargar variables de entorno

@@ -56,7 +56,7 @@ def sincronizar_secuencia_historial_nombres():
 def registrar_historial_nombre(user_id, nombre_anterior, nombre_nuevo, placa, estado, procesado_por, motivo):
     db, cur = obtener_cursor_nombres()
     cur.execute(
-        "INSERT INTO historial_nombres (user_id, nombre_anterior, nombre_nuevo, placa, estado, procesado_por, motivo, fecha) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        "INSERT INTO historial_nombres (guild_id, user_id, nombre_anterior, nombre_nuevo, placa, estado, procesado_por, motivo, fecha) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (user_id, nombre_anterior, nombre_nuevo, placa, estado, procesado_por, motivo, discord.utils.utcnow().strftime("%Y-%m-%d %H:%M"))
     )
     db.commit()

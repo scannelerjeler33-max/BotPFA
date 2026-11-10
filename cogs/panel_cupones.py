@@ -27,22 +27,27 @@ cursor.execute("""
 conn.commit()
 
 # --- FUNCIONES DE BASE DE DATOS ---
-def obtener_cupones(user_id):
-    cursor.execute("SELECT tipo_cupon, cantidad FROM cupones_usuario WHERE user_id = %s", (user_id,))
+ORIGINAL_GUILD_ID = int(os.getenv("GUILD_ID", "1132046806595944488") or 1132046806595944488)
+
+def obtener_cupones(user_id, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
+    cursor.execute("SELECT tipo_cupon, cantidad FROM cupones_usuario WHERE user_id = %s AND guild_id = %s", (user_id, guild_id))
     return cursor.fetchall()
 
-def obtener_cantidad_cupon(user_id, tipo_cupon):
-    cursor.execute("SELECT cantidad FROM cupones_usuario WHERE user_id = %s AND tipo_cupon = %s", (user_id, tipo_cupon))
+def obtener_cantidad_cupon(user_id, tipo_cupon, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
+    cursor.execute("SELECT cantidad FROM cupones_usuario WHERE user_id = %s AND tipo_cupon = %s AND guild_id = %s", (user_id, tipo_cupon, guild_id))
     resultado = cursor.fetchone()
     return resultado[0] if resultado else 0
 
-def modificar_cupones(user_id, tipo_cupon, cantidad):
+def modificar_cupones(user_id, tipo_cupon, cantidad, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
     cursor.execute("""
-        INSERT INTO cupones_usuario (user_id, tipo_cupon, cantidad)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (user_id, tipo_cupon) 
+        INSERT INTO cupones_usuario (guild_id, user_id, tipo_cupon, cantidad)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (guild_id, user_id, tipo_cupon) 
         DO UPDATE SET cantidad = GREATEST(0, cupones_usuario.cantidad + %s)
-    """, (user_id, tipo_cupon, cantidad, cantidad))
+    """, (guild_id, user_id, tipo_cupon, cantidad, cantidad))
     conn.commit()
 
 async def enviar_log_cupon(bot, tipo: str, admin=None, usuario=None, tipo_cupon: str = "", cantidad: int = 0, saldo_nuevo: int = 0, id_sancion: str = "", item_comprado: str = "", guild_id: int = None):
@@ -132,7 +137,7 @@ class ModalCanjearCupon(discord.ui.Modal):
         user_id = interaction.user.id
 
         # Verificar si aún tiene el cupón
-        cantidad = obtener_cantidad_cupon(user_id, self.tipo_cupon)
+        cantidad = obtener_cantidad_cupon(user_id, self.tipo_cupon, interaction.guild.id)
         if cantidad <= 0:
             return await interaction.response.send_message("❌ Ya no tienes cupones de este tipo.", ephemeral=True)
 
@@ -188,8 +193,8 @@ class ModalCanjearCupon(discord.ui.Modal):
                 await canal.send(embed=embed)
 
         # Consumir el cupón
-        modificar_cupones(user_id, self.tipo_cupon, -1)
-        saldo_restante = obtener_cantidad_cupon(user_id, self.tipo_cupon)
+        modificar_cupones(user_id, self.tipo_cupon, -1, interaction.guild.id)
+        saldo_restante = obtener_cantidad_cupon(user_id, self.tipo_cupon, interaction.guild.id)
         
         await enviar_log_cupon(
             interaction.client,
@@ -215,7 +220,7 @@ class SelectCupon(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         tipo_seleccionado = self.values[0]
-        cantidad = obtener_cantidad_cupon(interaction.user.id, tipo_seleccionado)
+        cantidad = obtener_cantidad_cupon(interaction.user.id, tipo_seleccionado, interaction.guild.id)
         
         if cantidad <= 0:
             tipo_display = tipo_seleccionado.replace("_", " ")
@@ -247,8 +252,8 @@ class SelectCupon(discord.ui.Select):
                 return await interaction.followup.send(f"❌ {error}", ephemeral=True)
                 
             # Consumir el cupón
-            modificar_cupones(interaction.user.id, "promote_faccionario", -1)
-            saldo_restante = obtener_cantidad_cupon(interaction.user.id, "promote_faccionario")
+            modificar_cupones(interaction.user.id, "promote_faccionario", -1, interaction.guild.id)
+            saldo_restante = obtener_cantidad_cupon(interaction.user.id, "promote_faccionario", interaction.guild.id)
             
             # Log de cupones
             await enviar_log_cupon(
@@ -298,7 +303,7 @@ class ViewPanelCupones(discord.ui.View):
 
     @discord.ui.button(label="Ver mis cupones", style=discord.ButtonStyle.secondary, emoji="🎟️", custom_id="btn_ver_cupones_v2")
     async def btn_ver(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cupones = obtener_cupones(interaction.user.id)
+        cupones = obtener_cupones(interaction.user.id, interaction.guild.id)
         
         tiene_cupones = any(cant > 0 for _, cant in cupones)
         if not cupones or not tiene_cupones:
@@ -376,8 +381,8 @@ class PanelCupones(commands.Cog):
         if cantidad <= 0:
             return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
 
-        modificar_cupones(usuario.id, tipo, cantidad)
-        saldo_nuevo = obtener_cantidad_cupon(usuario.id, tipo)
+        modificar_cupones(usuario.id, tipo, cantidad, interaction.guild.id)
+        saldo_nuevo = obtener_cantidad_cupon(usuario.id, tipo, interaction.guild.id)
         
         await enviar_log_cupon(
             bot=interaction.client,
@@ -404,12 +409,12 @@ class PanelCupones(commands.Cog):
         if cantidad <= 0:
             return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
 
-        cupones_actuales = obtener_cantidad_cupon(usuario.id, tipo)
+        cupones_actuales = obtener_cantidad_cupon(usuario.id, tipo, interaction.guild.id)
         if cupones_actuales < cantidad:
             return await interaction.response.send_message(f"❌ No puedes quitarle {cantidad} cupones. El usuario solo tiene **{cupones_actuales}**.", ephemeral=True)
 
-        modificar_cupones(usuario.id, tipo, -cantidad)
-        saldo_nuevo = obtener_cantidad_cupon(usuario.id, tipo)
+        modificar_cupones(usuario.id, tipo, -cantidad, interaction.guild.id)
+        saldo_nuevo = obtener_cantidad_cupon(usuario.id, tipo, interaction.guild.id)
         
         await enviar_log_cupon(
             bot=interaction.client,

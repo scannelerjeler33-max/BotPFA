@@ -64,25 +64,23 @@ def es_motivo_farmeo(razon: str) -> bool:
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def registrar_farmeo_horas(user_id: int) -> int:
-    """
-    Incrementa de forma atómica el contador semanal de sanciones por farmeo
-    de horas de un usuario y retorna el nuevo conteo. El "reset" semanal es
-    implícito: al cambiar semana_iso, el conteo vuelve a arrancar en 1.
-    """
+ORIGINAL_GUILD_ID = int(os.getenv("GUILD_ID", "1132046806595944488") or 1132046806595944488)
+
+def registrar_farmeo_horas(user_id: int, guild_id: int = None) -> int:
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
     ahora = _ahora_local()
     semana_iso = ahora.isocalendar()[1]
     anio = ahora.year
 
     cursor.execute(
         """
-        INSERT INTO farmeo_horas_semanal (user_id, semana_iso, anio, conteo)
-        VALUES (%s, %s, %s, 1)
-        ON CONFLICT (user_id, semana_iso, anio)
+        INSERT INTO farmeo_horas_semanal (guild_id, user_id, semana_iso, anio, conteo)
+        VALUES (%s, %s, %s, %s, 1)
+        ON CONFLICT (guild_id, user_id, semana_iso, anio)
         DO UPDATE SET conteo = farmeo_horas_semanal.conteo + 1
         RETURNING conteo
         """,
-        (user_id, semana_iso, anio),
+        (guild_id, user_id, semana_iso, anio),
     )
     return cursor.fetchone()[0]
 
@@ -131,7 +129,7 @@ async def procesar_sancion_farmeo(guild: discord.Guild, miembro: discord.Member)
     cuando el motivo elegido es "Farmeo de horas". Registra la sanción semanal
     y actualiza el rol de Farmero correspondiente. Retorna el conteo actual.
     """
-    conteo = registrar_farmeo_horas(miembro.id)
+    conteo = registrar_farmeo_horas(miembro.id, guild.id)
     await _aplicar_rol_farmero(guild, miembro, conteo)
     return conteo
 

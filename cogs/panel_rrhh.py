@@ -90,16 +90,16 @@ class ModalAusencia(discord.ui.Modal):
         if canal_rrhh: await canal_rrhh.send(embed=embed_log, view=ViewAprobarAusencia())
 
         mes_actual = ahora.strftime("%Y-%m")
-        cursor.execute("SELECT 1 FROM registro_pedidos_ausencia WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT 1 FROM registro_pedidos_ausencia WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         if cursor.fetchone():
             cursor.execute("""
                 UPDATE registro_pedidos_ausencia SET 
                     conteo_mes = CASE WHEN ultima_fecha = %s THEN COALESCE(conteo_mes, 0) + 1 ELSE 1 END,
                     dias_usados_mes = CASE WHEN ultima_fecha = %s THEN COALESCE(dias_usados_mes, 0) + %s ELSE %s END,
-                    ultima_fecha = %s WHERE user_id = %s
-            """, (mes_actual, mes_actual, dias_int, dias_int, mes_actual, interaction.user.id))
+                    ultima_fecha = %s WHERE user_id = %s AND guild_id = %s
+            """, (mes_actual, mes_actual, dias_int, dias_int, mes_actual, interaction.user.id, interaction.guild.id))
         else:
-            cursor.execute("INSERT INTO registro_pedidos_ausencia (user_id, ultima_fecha, conteo_mes, dias_usados_mes) VALUES (%s, %s, 1, %s)", (interaction.user.id, mes_actual, dias_int))
+            cursor.execute("INSERT INTO registro_pedidos_ausencia (guild_id, user_id, ultima_fecha, conteo_mes, dias_usados_mes) VALUES (%s, %s, %s, 1, %s)", (interaction.guild.id, interaction.user.id, mes_actual, dias_int))
         conn.commit()
 
         await interaction.response.send_message(f"✅ Tu solicitud de licencia por **{dias_int} días** ha sido enviada.", ephemeral=True)
@@ -169,9 +169,9 @@ class ViewAprobarAusencia(discord.ui.View):
         user_id = int(footer_data[0].split(":")[1])
         timestamp_fin = int(footer_data[1].split(":")[1])
 
-        cursor.execute("SELECT 1 FROM ausencias_activas WHERE user_id = %s", (user_id,))
-        if cursor.fetchone(): cursor.execute("UPDATE ausencias_activas SET fecha_fin = %s WHERE user_id = %s", (timestamp_fin, user_id))
-        else: cursor.execute("INSERT INTO ausencias_activas (user_id, fecha_fin) VALUES (%s, %s)", (user_id, timestamp_fin))
+        cursor.execute("SELECT 1 FROM ausencias_activas WHERE user_id = %s AND guild_id = %s", (user_id, interaction.guild.id))
+        if cursor.fetchone(): cursor.execute("UPDATE ausencias_activas SET fecha_fin = %s WHERE user_id = %s AND guild_id = %s", (timestamp_fin, user_id, interaction.guild.id))
+        else: cursor.execute("INSERT INTO ausencias_activas (guild_id, user_id, fecha_fin) VALUES (%s, %s, %s)", (interaction.guild.id, user_id, timestamp_fin))
         conn.commit()
 
         miembro = interaction.guild.get_member(user_id)
@@ -208,11 +208,11 @@ class ViewPanelAusencia(discord.ui.View):
         if not any(rol.id in roles_permitidos_ausencia for rol in interaction.user.roles) and not any(rol.id in roles_staff for rol in interaction.user.roles):
             return await interaction.response.send_message("⛔ **Acceso Denegado.**", ephemeral=True)
 
-        cursor.execute("SELECT 1 FROM ausencias_activas WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT 1 FROM ausencias_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         if cursor.fetchone(): return await interaction.response.send_message("⚠️ Ya tienes una ausencia activa en curso.", ephemeral=True)
 
         mes_actual = discord.utils.utcnow().strftime("%Y-%m")
-        cursor.execute("SELECT ultima_fecha, conteo_mes, dias_usados_mes FROM registro_pedidos_ausencia WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT ultima_fecha, conteo_mes, dias_usados_mes FROM registro_pedidos_ausencia WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         resultado = cursor.fetchone()
 
         dias_restantes, conteo_mes = 14, 0
@@ -227,10 +227,10 @@ class ViewPanelAusencia(discord.ui.View):
 
     @discord.ui.button(label="Finalizar Ausencia", style=discord.ButtonStyle.success, emoji="✅", custom_id="btn_finalizar_ausencia_v1")
     async def btn_finalizar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cursor.execute("SELECT 1 FROM ausencias_activas WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT 1 FROM ausencias_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         if not cursor.fetchone(): return await interaction.response.send_message("⚠️ No tienes ausencia activa.", ephemeral=True)
 
-        cursor.execute("DELETE FROM ausencias_activas WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("DELETE FROM ausencias_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         conn.commit()
 
         rol_ausente_id = obtener_config_int(interaction.guild.id, "ROL_AUSENTE_ID", ROL_AUSENTE_ID)
@@ -272,7 +272,7 @@ class PanelRRHH(commands.Cog):
     @tasks.loop(hours=1)
     async def revisar_ausencias_expiradas(self):
         ahora_timestamp = int(discord.utils.utcnow().timestamp())
-        cursor.execute("SELECT user_id FROM ausencias_activas WHERE fecha_fin <= %s", (ahora_timestamp,))
+        cursor.execute("SELECT guild_id, user_id FROM ausencias_activas WHERE fecha_fin <= %s", (ahora_timestamp,))
         expiradas = cursor.fetchall()
         if not expiradas:
             return

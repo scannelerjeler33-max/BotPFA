@@ -30,6 +30,8 @@ def obtener_rango_fechas_semana(semana_iso: int, anio: int) -> str:
     return f"{lunes.strftime('%d/%m')} - {domingo.strftime('%d/%m')}"
 
 
+ORIGINAL_GUILD_ID = int(os.getenv("GUILD_ID", "1132046806595944488") or 1132046806595944488)
+
 # --- CONEXIÓN A BASE DE DATOS ---
 conn_iv = get_connection()
 conn_iv.autocommit = True
@@ -85,11 +87,12 @@ def _es_interviewer(miembro: discord.Member) -> bool:
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def obtener_sesion_activa(interviewer_id: int) -> dict | None:
+def obtener_sesion_activa(interviewer_id: int, guild_id: int = None) -> dict | None:
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
     cursor_iv.execute(
         "SELECT id, numero_semanal, fecha_apertura FROM oposiciones_sesiones "
-        "WHERE interviewer_id = %s AND activa = TRUE",
-        (interviewer_id,),
+        "WHERE interviewer_id = %s AND guild_id = %s AND activa = TRUE",
+        (interviewer_id, guild_id),
     )
     row = cursor_iv.fetchone()
     if not row:
@@ -97,26 +100,27 @@ def obtener_sesion_activa(interviewer_id: int) -> dict | None:
     return {"id": row[0], "numero_semanal": row[1], "fecha_apertura": row[2]}
 
 
-def abrir_sesion(interviewer_id: int) -> tuple[int, int]:
+def abrir_sesion(interviewer_id: int, guild_id: int = None) -> tuple[int, int]:
     """Crea una nueva sesión de oposiciones. Retorna (sesion_id, numero_semanal)."""
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
     ahora = _ahora_local()
     semana_iso = ahora.isocalendar()[1]
     anio = ahora.year
 
     cursor_iv.execute(
-        "SELECT COUNT(*) FROM oposiciones_sesiones WHERE semana_iso = %s AND anio = %s",
-        (semana_iso, anio),
+        "SELECT COUNT(*) FROM oposiciones_sesiones WHERE semana_iso = %s AND anio = %s AND guild_id = %s",
+        (semana_iso, anio, guild_id),
     )
     numero_semanal = cursor_iv.fetchone()[0] + 1
 
     cursor_iv.execute(
         """
         INSERT INTO oposiciones_sesiones
-            (interviewer_id, fecha_apertura, numero_semanal, semana_iso, anio, activa)
-        VALUES (%s, NOW(), %s, %s, %s, TRUE)
+            (guild_id, interviewer_id, fecha_apertura, numero_semanal, semana_iso, anio, activa)
+        VALUES (%s, %s, NOW(), %s, %s, %s, TRUE)
         RETURNING id
         """,
-        (interviewer_id, numero_semanal, semana_iso, anio),
+        (guild_id, interviewer_id, numero_semanal, semana_iso, anio),
     )
     return cursor_iv.fetchone()[0], numero_semanal
 
@@ -143,17 +147,19 @@ def registrar_resultado(
     nota: int,
     aprobado: bool,
     invitado_por: int | None,
+    guild_id: int = None,
 ) -> None:
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
     ahora = _ahora_local()
     cursor_iv.execute(
         """
         INSERT INTO oposiciones_resultados
-            (sesion_id, interviewer_id, postulante_id, nota, aprobado, invitado_por,
+            (guild_id, sesion_id, interviewer_id, postulante_id, nota, aprobado, invitado_por,
              semana_iso, anio, fecha)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """,
         (
-            sesion_id, interviewer_id, postulante_id, nota, aprobado, invitado_por,
+            guild_id, sesion_id, interviewer_id, postulante_id, nota, aprobado, invitado_por,
             ahora.isocalendar()[1], ahora.year,
         ),
     )
@@ -335,13 +341,13 @@ class ModalAbrirOposiciones(discord.ui.Modal, title="📋 Abrir Opos"):
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        if obtener_sesion_activa(interaction.user.id):
+        if obtener_sesion_activa(interaction.user.id, interaction.guild.id):
             return await interaction.response.send_message(
                 "⚠️ Ya tenés una sesión activa. Cerrala antes de abrir una nueva.",
                 ephemeral=True,
             )
 
-        sesion_id, numero_semanal = abrir_sesion(interaction.user.id)
+        sesion_id, numero_semanal = abrir_sesion(interaction.user.id, interaction.guild.id)
 
         guild_id = interaction.guild.id
         canal_post_id = _get_iv_config(guild_id, "CANAL_POSTULACIONES_ID")
@@ -409,7 +415,7 @@ class ModalEvaluarPostulante(discord.ui.Modal, title="📝 Evaluar"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        sesion = obtener_sesion_activa(interaction.user.id)
+        sesion = obtener_sesion_activa(interaction.user.id, interaction.guild.id)
         if not sesion:
             return await interaction.followup.send(
                 "⚠️ No tenés una sesión activa. Abrí oposiciones primero.",
@@ -615,7 +621,7 @@ class ViewPanelInterviewer(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        sesion = obtener_sesion_activa(interaction.user.id)
+        sesion = obtener_sesion_activa(interaction.user.id, interaction.guild.id)
         if not sesion:
             return await interaction.followup.send(
                 "⚠️ No tenés una sesión activa.", ephemeral=True
@@ -732,7 +738,7 @@ class ViewPanelInterviewer(discord.ui.View):
                 lista = lista[:1000] + "\n..."
             embed.add_field(name="🎉 Ingresantes aprobados", value=lista, inline=False)
 
-        sesion_activa = obtener_sesion_activa(interaction.user.id)
+        sesion_activa = obtener_sesion_activa(interaction.user.id, interaction.guild.id)
         if sesion_activa:
             fa = sesion_activa["fecha_apertura"]
             if fa.tzinfo is None:
@@ -769,9 +775,10 @@ class PanelInterviewer(commands.Cog):
     )
     async def panel_interviewer(self, interaction: discord.Interaction) -> None:
         guild_id = interaction.guild.id
+        es_admin = interaction.user.id == interaction.guild.owner_id or interaction.user.guild_permissions.administrator
         rol_encargado = _get_iv_config(guild_id, "ROL_ENCARGADO_INTERVIEWER_ID")
         rol_panel_admin = _get_iv_config(guild_id, "ROL_PANEL_ADMIN_ID")
-        tiene_permiso = any(r.id in (rol_encargado, rol_panel_admin) for r in interaction.user.roles)
+        tiene_permiso = es_admin or any(r.id in (rol_encargado, rol_panel_admin) for r in interaction.user.roles)
         if not tiene_permiso:
             return await interaction.response.send_message(
                 "⛔ No tenés permiso para desplegar este panel.", ephemeral=True

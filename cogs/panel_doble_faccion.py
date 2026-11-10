@@ -73,8 +73,7 @@ class ModalPostulacionDF(discord.ui.Modal, title="Postulación — Doble Facció
             )
 
         cursor.execute(
-            "INSERT INTO doble_faccion_solicitudes (user_id, estado) VALUES (%s, 'pendiente') ON CONFLICT DO NOTHING",
-            (interaction.user.id,)
+            "INSERT INTO doble_faccion_solicitudes (guild_id, user_id, estado) VALUES (%s, %s, 'pendiente') ON CONFLICT (guild_id, user_id) DO NOTHING", (interaction.guild.id, interaction.user.id)
         )
 
         embed = discord.Embed(
@@ -114,7 +113,7 @@ class ModalRechazoDF(discord.ui.Modal):
         self.add_item(self.motivo_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        cursor.execute("DELETE FROM doble_faccion_solicitudes WHERE user_id = %s", (self.user_id,))
+        cursor.execute("DELETE FROM doble_faccion_solicitudes WHERE user_id = %s AND guild_id = %s", (self.user_id, interaction.guild.id))
 
         embed = self.original_embed
         embed.title = "❌ DOBLE FACCIÓN RECHAZADA"
@@ -161,7 +160,7 @@ class ViewRevisarPostulacionDF(discord.ui.View):
 
         user_id = int(embed.footer.text.split(":")[1])
         cursor.execute(
-            "UPDATE doble_faccion_solicitudes SET estado = 'aprobada' WHERE user_id = %s", (user_id,)
+            "UPDATE doble_faccion_solicitudes SET estado = 'aprobada' WHERE user_id = %s AND guild_id = %s", (user_id, interaction.guild.id)
         )
 
         miembro = interaction.guild.get_member(user_id)
@@ -224,7 +223,7 @@ class ViewPanelDF(discord.ui.View):
             )
 
         cursor.execute(
-            "SELECT estado FROM doble_faccion_solicitudes WHERE user_id = %s", (interaction.user.id,)
+            "SELECT estado FROM doble_faccion_solicitudes WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id)
         )
         resultado = cursor.fetchone()
         if resultado:
@@ -258,7 +257,7 @@ class ViewPanelDF(discord.ui.View):
         except Exception as e:
             print(f"[DF] Error al quitar rol: {e}")
 
-        cursor.execute("DELETE FROM doble_faccion_solicitudes WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("DELETE FROM doble_faccion_solicitudes WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
 
         canal_registro_id = obtener_config_int(interaction.guild.id, "CANAL_REGISTRO_DF_ID", CANAL_REGISTRO_DF_ID)
         canal_registro = interaction.guild.get_channel(canal_registro_id)
@@ -290,7 +289,7 @@ class ViewPanelDF(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        cursor.execute("SELECT user_id FROM doble_faccion_solicitudes WHERE estado = 'aprobada'")
+        cursor.execute("SELECT user_id FROM doble_faccion_solicitudes WHERE guild_id = %s AND estado = 'aprobada'", (interaction.guild.id,))
         resultados = cursor.fetchall()
 
         if not resultados:

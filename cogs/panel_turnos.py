@@ -54,17 +54,17 @@ class ViewPanelTurnos(discord.ui.View):
             return await interaction.response.send_message("⛔ Solo los oficiales de la PFA pueden abrir turno.", ephemeral=True)
         
         # Verificar si ya tiene un turno abierto
-        cursor.execute("SELECT turno_activo FROM turnos_oficiales WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT turno_activo FROM turnos_oficiales WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         res = cursor.fetchone()
         if res and res[0]:
             return await interaction.response.send_message("⚠️ Ya tienes un turno abierto en este momento.", ephemeral=True)
         
         # Guardar en base de datos
         cursor.execute("""
-            INSERT INTO turnos_oficiales (user_id, turno_activo, inicio_turno)
-            VALUES (%s, TRUE, NOW())
-            ON CONFLICT (user_id) DO UPDATE SET turno_activo = TRUE, inicio_turno = NOW()
-        """, (interaction.user.id,))
+            INSERT INTO turnos_oficiales (guild_id, user_id, turno_activo, inicio_turno)
+            VALUES (%s, %s, TRUE, NOW())
+            ON CONFLICT (guild_id, user_id) DO UPDATE SET turno_activo = TRUE, inicio_turno = NOW()
+        """, (interaction.guild.id, interaction.user.id))
         
         # Anuncio en el canal de turnos
         canal_turnos_id = obtener_config_int(interaction.guild.id, "CANAL_TURNOS_ID", CANAL_TURNOS_ID)
@@ -83,7 +83,7 @@ class ViewPanelTurnos(discord.ui.View):
     @discord.ui.button(label="Cerrar Turno", style=discord.ButtonStyle.danger, emoji="🔴", custom_id="btn_cerrar_turno_v1")
     async def btn_cerrar(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Verificar si tiene turno activo
-        cursor.execute("SELECT turno_activo, inicio_turno FROM turnos_oficiales WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT turno_activo, inicio_turno FROM turnos_oficiales WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         res = cursor.fetchone()
         if not res or not res[0]:
             return await interaction.response.send_message("⚠️ No tienes ningún turno abierto.", ephemeral=True)
@@ -127,7 +127,7 @@ class ViewPanelTurnos(discord.ui.View):
 
     @discord.ui.button(label="Mis Turnos Semanales", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="btn_mis_turnos_v1")
     async def btn_mis_turnos(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cursor.execute("SELECT turnos_semana, horas_semana, turno_activo, inicio_turno FROM turnos_oficiales WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT turnos_semana, horas_semana, turno_activo, inicio_turno FROM turnos_oficiales WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         res = cursor.fetchone()
         
         if not res:
@@ -152,7 +152,7 @@ class ViewPanelTurnos(discord.ui.View):
     @discord.ui.button(label="Top Semanal", style=discord.ButtonStyle.primary, emoji="🏆", custom_id="btn_top_turnos_v1")
     async def btn_top_turnos(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Obtenemos a los que tengan más de 0 horas ordenados de mayor a menor
-        cursor.execute("SELECT user_id, turnos_semana, horas_semana FROM turnos_oficiales WHERE horas_semana > 0 OR turnos_semana > 0 ORDER BY horas_semana DESC LIMIT 15")
+        cursor.execute("SELECT user_id, turnos_semana, horas_semana FROM turnos_oficiales WHERE guild_id = %s AND (horas_semana > 0 OR turnos_semana > 0) ORDER BY horas_semana DESC LIMIT 15", (interaction.guild.id,))
         resultados = cursor.fetchall()
         
         if not resultados:
@@ -195,8 +195,9 @@ class PanelTurnos(commands.Cog):
 
     @app_commands.command(name="panelturnos", description="Despliega el panel de Fichaje de Turnos PFA.")
     async def panelturnos(self, interaction: discord.Interaction):
+        es_admin = interaction.user.id == interaction.guild.owner_id or interaction.user.guild_permissions.administrator
         rol_admin_id = obtener_config_int(interaction.guild.id, "ROL_PANEL_ADMIN_ID", ROL_PANEL_ADMIN_ID)
-        if not any(r.id == rol_admin_id for r in interaction.user.roles):
+        if not (es_admin or any(r.id == rol_admin_id for r in interaction.user.roles)):
             return await interaction.response.send_message("⛔ No tienes permiso para desplegar este panel.", ephemeral=True)
         
         embed = discord.Embed(

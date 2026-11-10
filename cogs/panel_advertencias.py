@@ -61,66 +61,73 @@ def generar_warn_id(longitud=13):
         if not cur.fetchone():
             return nid
 
-def contar_warns(user_id):
-    cur.execute("SELECT COUNT(*) FROM advertencias WHERE user_id = %s", (user_id,))
+ORIGINAL_GUILD_ID = int(os.getenv("GUILD_ID", "1132046806595944488") or 1132046806595944488)
+
+def contar_warns(user_id, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
+    cur.execute("SELECT COUNT(*) FROM advertencias WHERE user_id = %s AND guild_id = %s", (user_id, guild_id))
     return cur.fetchone()[0]
 
-def agregar_warn(user_id, razon, admin_id):
+def agregar_warn(user_id, razon, admin_id, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
     wid = generar_warn_id()
     fecha = _ahora_str()
     try:
-        cur.execute("INSERT INTO advertencias (warn_id, user_id, razon, admin_id, fecha) VALUES (%s,%s,%s,%s,%s)",
-                    (wid, user_id, razon, admin_id, fecha))
-        cur.execute("INSERT INTO advertencias_historial (warn_id, user_id, razon, admin_id, fecha, accion) VALUES (%s,%s,%s,%s,%s,%s)",
-                    (wid, user_id, razon, admin_id, fecha, "AGREGADA"))
+        cur.execute("INSERT INTO advertencias (warn_id, guild_id, user_id, razon, admin_id, fecha) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (wid, guild_id, user_id, razon, admin_id, fecha))
+        cur.execute("INSERT INTO advertencias_historial (warn_id, guild_id, user_id, razon, admin_id, fecha, accion) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (wid, guild_id, user_id, razon, admin_id, fecha, "AGREGADA"))
         conn.commit()
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         reparar_secuencias()
-        cur.execute("INSERT INTO advertencias (warn_id, user_id, razon, admin_id, fecha) VALUES (%s,%s,%s,%s,%s)",
-                    (wid, user_id, razon, admin_id, fecha))
-        cur.execute("INSERT INTO advertencias_historial (warn_id, user_id, razon, admin_id, fecha, accion) VALUES (%s,%s,%s,%s,%s,%s)",
-                    (wid, user_id, razon, admin_id, fecha, "AGREGADA"))
+        cur.execute("INSERT INTO advertencias (warn_id, guild_id, user_id, razon, admin_id, fecha) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (wid, guild_id, user_id, razon, admin_id, fecha))
+        cur.execute("INSERT INTO advertencias_historial (warn_id, guild_id, user_id, razon, admin_id, fecha, accion) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (wid, guild_id, user_id, razon, admin_id, fecha, "AGREGADA"))
         conn.commit()
-    return wid, contar_warns(user_id), fecha
+    return wid, contar_warns(user_id, guild_id), fecha
 
-def eliminar_warn(warn_id, admin_id, motivo):
-    cur.execute("SELECT warn_id, user_id, razon, admin_id, fecha FROM advertencias WHERE warn_id = %s", (warn_id,))
+def eliminar_warn(warn_id, admin_id, motivo, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
+    cur.execute("SELECT warn_id, user_id, razon, admin_id, fecha, guild_id FROM advertencias WHERE warn_id = %s", (warn_id,))
     r = cur.fetchone()
     if not r:
         return None
-    datos = {"warn_id": r[0], "user_id": r[1], "razon": r[2], "admin_id": r[3], "fecha": r[4]}
+    datos = {"warn_id": r[0], "user_id": r[1], "razon": r[2], "admin_id": r[3], "fecha": r[4], "guild_id": r[5]}
     cur.execute("DELETE FROM advertencias WHERE warn_id = %s", (warn_id,))
     fecha = _ahora_str()
-    cur.execute("INSERT INTO advertencias_historial (warn_id, user_id, razon, admin_id, fecha, accion, motivo_eliminacion) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (datos["warn_id"], datos["user_id"], datos["razon"], admin_id, fecha, "ELIMINADA", motivo))
+    cur.execute("INSERT INTO advertencias_historial (warn_id, guild_id, user_id, razon, admin_id, fecha, accion, motivo_eliminacion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (datos["warn_id"], datos.get("guild_id", guild_id), datos["user_id"], datos["razon"], admin_id, fecha, "ELIMINADA", motivo))
     conn.commit()
-    datos["warns_restantes"] = contar_warns(datos["user_id"])
+    datos["warns_restantes"] = contar_warns(datos["user_id"], datos.get("guild_id", guild_id))
     return datos
 
 def buscar_warn(warn_id):
-    cur.execute("SELECT warn_id, user_id, razon, admin_id, fecha FROM advertencias WHERE warn_id = %s", (warn_id,))
+    cur.execute("SELECT warn_id, user_id, razon, admin_id, fecha, guild_id FROM advertencias WHERE warn_id = %s", (warn_id,))
     r = cur.fetchone()
     if not r:
         return None
     return {"warn_id": r[0], "user_id": r[1], "razon": r[2], "admin_id": r[3], "fecha": r[4]}
 
-def obtener_warns_usuario(user_id):
-    cur.execute("SELECT warn_id, razon, admin_id, fecha FROM advertencias WHERE user_id = %s ORDER BY fecha ASC, warn_id ASC", (user_id,))
+def obtener_warns_usuario(user_id, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
+    cur.execute("SELECT warn_id, razon, admin_id, fecha FROM advertencias WHERE user_id = %s AND guild_id = %s ORDER BY fecha ASC, warn_id ASC", (user_id, guild_id))
     return cur.fetchall()
 
-def obtener_historial_warns(user_id):
-    cur.execute("SELECT warn_id, razon, admin_id, fecha, accion, motivo_eliminacion FROM advertencias_historial WHERE user_id = %s ORDER BY id ASC", (user_id,))
+def obtener_historial_warns(user_id, guild_id=None):
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
+    cur.execute("SELECT warn_id, razon, admin_id, fecha, accion, motivo_eliminacion FROM advertencias_historial WHERE user_id = %s AND guild_id = %s ORDER BY id ASC", (user_id, guild_id))
     return cur.fetchall()
 
 # --- FUNCIÓN PARA AUTO-STRIKE AL LLEGAR A 3 WARNS ---
 def _auto_strike(user_id, admin_id, guild_id):
     """Si el usuario tiene 3+ warns, las borra todas y crea 1 strike automático."""
     from cogs.panel_strikes import agregar_strike, CANAL_STRIKES_ID as STRIKES_CH_DEFAULT
-    total = contar_warns(user_id)
+    total = contar_warns(user_id, guild_id)
     if total >= 3:
         # Eliminar las 3 warns del usuario
-        cur.execute("SELECT warn_id FROM advertencias WHERE user_id = %s ORDER BY fecha ASC, warn_id ASC LIMIT 3", (user_id,))
+        cur.execute("SELECT warn_id FROM advertencias WHERE user_id = %s AND guild_id = %s ORDER BY fecha ASC, warn_id ASC LIMIT 3", (user_id, guild_id))
         warns_a_borrar = cur.fetchall()
         fecha = _ahora_str()
         for (wid,) in warns_a_borrar:

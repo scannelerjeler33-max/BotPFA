@@ -82,26 +82,26 @@ class ViewMisiones(discord.ui.View):
 
         if es_diaria:
             fecha_hoy = discord.utils.utcnow().strftime("%Y-%m-%d")
-            cursor.execute("SELECT 1 FROM misiones_diarias_completadas WHERE user_id = %s AND fecha = %s", (interaction.user.id, fecha_hoy))
+            cursor.execute("SELECT 1 FROM misiones_diarias_completadas WHERE user_id = %s AND fecha = %s AND guild_id = %s", (interaction.user.id, fecha_hoy, interaction.guild.id))
             if cursor.fetchone(): return await interaction.response.send_message("🚫 Ya hiciste la diaria de hoy.", ephemeral=True)
-            cursor.execute("SELECT 1 FROM misiones_diarias_activas WHERE user_id = %s", (interaction.user.id,))
+            cursor.execute("SELECT 1 FROM misiones_diarias_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
             if cursor.fetchone(): return await interaction.response.send_message("❌ Ya tienes una diaria en curso.", ephemeral=True)
-            cursor.execute("INSERT INTO misiones_diarias_activas (user_id, mision_nombre, division, progreso) VALUES (%s, %s, %s, 0)", (interaction.user.id, m_nombre, self.division_key))
+            cursor.execute("INSERT INTO misiones_diarias_activas (guild_id, user_id, mision_nombre, division, progreso) VALUES (%s, %s, %s, %s, 0)", (interaction.guild.id, interaction.user.id, m_nombre, self.division_key))
         else:
-            cursor.execute("SELECT 1 FROM misiones_activas WHERE user_id = %s", (interaction.user.id,))
+            cursor.execute("SELECT 1 FROM misiones_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
             if cursor.fetchone(): return await interaction.response.send_message("❌ Ya tienes una semanal en curso.", ephemeral=True)
-            cursor.execute("SELECT 1 FROM misiones_completadas WHERE user_id = %s", (interaction.user.id,))
+            cursor.execute("SELECT 1 FROM misiones_completadas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
             if cursor.fetchone(): return await interaction.response.send_message("🚫 Ya completaste la semanal.", ephemeral=True)
-            cursor.execute("INSERT INTO misiones_activas (user_id, mision_nombre, division, progreso) VALUES (%s, %s, %s, 0)", (interaction.user.id, m_nombre, self.division_key))
+            cursor.execute("INSERT INTO misiones_activas (guild_id, user_id, mision_nombre, division, progreso) VALUES (%s, %s, %s, %s, 0)", (interaction.guild.id, interaction.user.id, m_nombre, self.division_key))
 
         conn.commit()
         await interaction.response.send_message(f"🚀 **OPERATIVO INICIADO**: {m_nombre}", ephemeral=True)
     
     @discord.ui.button(label="Tarea Finalizada", style=discord.ButtonStyle.danger, custom_id="btn_mision_finish_v15")
     async def finalizar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cursor.execute("SELECT mision_nombre, progreso FROM misiones_activas WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT mision_nombre, progreso FROM misiones_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         semanal = cursor.fetchone()
-        cursor.execute("SELECT mision_nombre, progreso FROM misiones_diarias_activas WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute("SELECT mision_nombre, progreso FROM misiones_diarias_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         diaria = cursor.fetchone()
 
         if not semanal and not diaria: return await interaction.response.send_message("❌ Sin misiones.", ephemeral=True)
@@ -115,11 +115,11 @@ class ViewMisiones(discord.ui.View):
             m_s = METAS_MISIONES.get(n_s, 20)
             if p_s >= m_s:
                 total_recompensa += 5.00
-                cursor.execute("INSERT INTO misiones_completadas (user_id, mision_nombre, fecha) VALUES (%s, %s, %s)", (interaction.user.id, n_s, discord.utils.utcnow().strftime("%Y-%m-%d %H:%M")))
-                cursor.execute("DELETE FROM misiones_activas WHERE user_id = %s", (interaction.user.id,))
-                cursor.execute("UPDATE competencia_subdivisiones SET puntos = puntos + 1 WHERE division = %s", (self.division_key,))
+                cursor.execute("INSERT INTO misiones_completadas (guild_id, user_id, mision_nombre, fecha) VALUES (%s, %s, %s, %s)", (interaction.guild.id, interaction.user.id, n_s, discord.utils.utcnow().strftime("%Y-%m-%d %H:%M")))
+                cursor.execute("DELETE FROM misiones_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
+                cursor.execute("UPDATE competencia_subdivisiones SET puntos = puntos + 1 WHERE division = %s AND guild_id = %s", (self.division_key, interaction.guild.id))
                 if self.division_key == "URA":
-                    cursor.execute("INSERT INTO ura_top_misiones (user_id, misiones) VALUES (%s, 1) ON CONFLICT (user_id) DO UPDATE SET misiones = ura_top_misiones.misiones + 1", (interaction.user.id,))
+                    cursor.execute("INSERT INTO ura_top_misiones (guild_id, user_id, misiones) VALUES (%s, %s, 1) ON CONFLICT (guild_id, user_id) DO UPDATE SET misiones = ura_top_misiones.misiones + 1", (interaction.guild.id, interaction.user.id))
                 embed.add_field(name="📅 Semanal: COMPLETADA", value=f"✅ **{n_s}** (+5.00)", inline=False)
                 mensajes.append(f"semanal {n_s}")
             else: embed.add_field(name="📅 Semanal: EN CURSO", value=f"⏳ `{n_s}`\nProgreso: **{p_s}/{m_s}**", inline=False)
@@ -130,7 +130,7 @@ class ViewMisiones(discord.ui.View):
             if p_d >= m_d:
                 recompensa_d, msg_racha = 1.50, ""
                 ayer = (discord.utils.utcnow().date() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-                cursor.execute("SELECT contador, ultima_fecha FROM rachas_diarias WHERE user_id = %s", (interaction.user.id,))
+                cursor.execute("SELECT contador, ultima_fecha FROM rachas_diarias WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
                 r_data = cursor.fetchone()
                 n_r = 1
                 if r_data:
@@ -140,12 +140,12 @@ class ViewMisiones(discord.ui.View):
                 
                 if n_r >= 7: recompensa_d += 0.50; n_r = 0; msg_racha = " 🔥 **¡BONO RACHA!**"
                 total_recompensa += recompensa_d
-                cursor.execute("INSERT INTO rachas_diarias (user_id, contador, ultima_fecha) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET contador = EXCLUDED.contador, ultima_fecha = EXCLUDED.ultima_fecha", (interaction.user.id, n_r, hoy_str))
-                cursor.execute("INSERT INTO misiones_diarias_completadas (user_id, fecha) VALUES (%s, %s)", (interaction.user.id, hoy_str))
-                cursor.execute("DELETE FROM misiones_diarias_activas WHERE user_id = %s", (interaction.user.id,))
-                cursor.execute("UPDATE competencia_subdivisiones SET puntos = puntos + 1 WHERE division = %s", (self.division_key,))
+                cursor.execute("INSERT INTO rachas_diarias (guild_id, user_id, contador, ultima_fecha) VALUES (%s, %s, %s, %s) ON CONFLICT (guild_id, user_id) DO UPDATE SET contador = EXCLUDED.contador, ultima_fecha = EXCLUDED.ultima_fecha", (interaction.guild.id, interaction.user.id, n_r, hoy_str))
+                cursor.execute("INSERT INTO misiones_diarias_completadas (guild_id, user_id, fecha) VALUES (%s, %s, %s)", (interaction.guild.id, interaction.user.id, hoy_str))
+                cursor.execute("DELETE FROM misiones_diarias_activas WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
+                cursor.execute("UPDATE competencia_subdivisiones SET puntos = puntos + 1 WHERE division = %s AND guild_id = %s", (self.division_key, interaction.guild.id))
                 if self.division_key == "URA":
-                    cursor.execute("INSERT INTO ura_top_misiones (user_id, misiones) VALUES (%s, 1) ON CONFLICT (user_id) DO UPDATE SET misiones = ura_top_misiones.misiones + 1", (interaction.user.id,))
+                    cursor.execute("INSERT INTO ura_top_misiones (guild_id, user_id, misiones) VALUES (%s, %s, 1) ON CONFLICT (guild_id, user_id) DO UPDATE SET misiones = ura_top_misiones.misiones + 1", (interaction.guild.id, interaction.user.id))
                 embed.add_field(name="☀️ Diaria: COMPLETADA", value=f"✅ **{n_d}** (+{recompensa_d:.2f}){msg_racha}", inline=False)
                 mensajes.append(f"diaria {n_d}")
             else: embed.add_field(name="☀️ Diaria: EN CURSO", value=f"⏳ `{n_d}`\nProgreso: **{p_d}/{m_d}**", inline=False)
@@ -176,12 +176,12 @@ class ModalPruebas(discord.ui.Modal, title="📸 REGISTRO POR ID"):
         except: return await interaction.response.send_message("❌ ID de Mensaje No Encontrado en el canal de la subdivisión.", ephemeral=True)
         if not msg.attachments or msg.author.id != interaction.user.id: return await interaction.response.send_message("❌ Error de foto o autor.", ephemeral=True)
 
-        cursor.execute(f"SELECT progreso FROM {self.tabla} WHERE user_id = %s", (interaction.user.id,))
+        cursor.execute(f"SELECT progreso FROM {self.tabla} WHERE user_id = %s AND guild_id = %s", (interaction.user.id, interaction.guild.id))
         res = cursor.fetchone()
         if not res: return await interaction.response.send_message("❌ No hay misión activa.", ephemeral=True)
         
         n_prog = res[0] + 1
-        cursor.execute(f"UPDATE {self.tabla} SET progreso = %s WHERE user_id = %s", (n_prog, interaction.user.id))
+        cursor.execute(f"UPDATE {self.tabla} SET progreso = %s WHERE user_id = %s AND guild_id = %s", (n_prog, interaction.user.id, interaction.guild.id))
         conn.commit()
 
         embed_log = discord.Embed(title=f"📸 PRUEBA - {self.div_key}", color=discord.Color.blue())
@@ -199,13 +199,13 @@ class ViewPruebas(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="Subir Prueba Semanal", style=discord.ButtonStyle.primary, custom_id="btn_pruebas_semanal_v1")
     async def s_semanal(self, i: discord.Interaction, b: discord.ui.Button):
-        cursor.execute("SELECT mision_nombre, progreso, division FROM misiones_activas WHERE user_id = %s", (i.user.id,))
+        cursor.execute("SELECT mision_nombre, progreso, division FROM misiones_activas WHERE user_id = %s AND guild_id = %s", (i.user.id, i.guild.id))
         res = cursor.fetchone()
         if not res: return await i.response.send_message("❌ Sin misión.", ephemeral=True)
         await i.response.send_modal(ModalPruebas(res[0], res[1], METAS_MISIONES.get(res[0], 15), res[2], "misiones_activas"))
     @discord.ui.button(label="Subir Prueba Diaria", style=discord.ButtonStyle.success, custom_id="btn_pruebas_diaria_v1")
     async def s_diaria(self, i: discord.Interaction, b: discord.ui.Button):
-        cursor.execute("SELECT mision_nombre, progreso, division FROM misiones_diarias_activas WHERE user_id = %s", (i.user.id,))
+        cursor.execute("SELECT mision_nombre, progreso, division FROM misiones_diarias_activas WHERE user_id = %s AND guild_id = %s", (i.user.id, i.guild.id))
         res = cursor.fetchone()
         if not res: return await i.response.send_message("❌ Sin misión.", ephemeral=True)
         await i.response.send_modal(ModalPruebas(res[0], res[1], METAS_MISIONES.get(res[0], 1), res[2], "misiones_diarias_activas"))
@@ -229,7 +229,7 @@ class ModalRobos(discord.ui.Modal, title="🚨 ROBO ACUDIDO"):
         if cursor.fetchone(): return await interaction.followup.send("❌ Foto duplicada.", ephemeral=True)
 
         cursor.execute("INSERT INTO evidencias_usadas (msg_id, user_id, tipo, image_hash) VALUES (%s, %s, %s, %s)", (m_id, interaction.user.id, "robo", hsh))
-        cursor.execute("INSERT INTO robos_acudidos (user_id, total_robos) VALUES (%s, 1) ON CONFLICT(user_id) DO UPDATE SET total_robos = robos_acudidos.total_robos + 1", (interaction.user.id,))
+        cursor.execute("INSERT INTO robos_acudidos (guild_id, user_id, total_robos) VALUES (%s, %s, 1) ON CONFLICT(guild_id, user_id) DO UPDATE SET total_robos = robos_acudidos.total_robos + 1", (interaction.guild.id, interaction.user.id))
         conn.commit()
 
         actualizar_coins(interaction.user.id, 0.04)
@@ -245,7 +245,7 @@ class ViewPanelRobos(discord.ui.View):
         await i.response.send_modal(ModalRobos())
     @discord.ui.button(label="Top Robos Acudidos", style=discord.ButtonStyle.secondary, custom_id="btn_top_robos", emoji="🏆")
     async def btn_t(self, i: discord.Interaction, b: discord.ui.Button):
-        cursor.execute("SELECT user_id, total_robos FROM robos_acudidos ORDER BY total_robos DESC LIMIT 10")
+        cursor.execute("SELECT user_id, total_robos FROM robos_acudidos WHERE guild_id = %s ORDER BY total_robos DESC LIMIT 10", (interaction.guild.id,))
         res = cursor.fetchall()
         embed = discord.Embed(title="🏆 TOP ROBOS", description="\\n".join([f"• <@{u}>: {t} robos" for u, t in res]), color=discord.Color.dark_red())
         await i.response.send_message(embed=embed, ephemeral=True)

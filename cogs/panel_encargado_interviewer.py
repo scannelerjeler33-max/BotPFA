@@ -53,6 +53,8 @@ def obtener_rango_fechas_semana(semana_iso: int, anio: int) -> str:
 
 
 def _sin_permiso(interaction: discord.Interaction) -> bool:
+    if interaction.user.id == interaction.guild.owner_id or interaction.user.guild_permissions.administrator:
+        return False
     guild_id = interaction.guild.id
     rol_encargado = _get_iv_config(guild_id, "ROL_ENCARGADO_INTERVIEWER_ID")
     rol_panel_admin = _get_iv_config(guild_id, "ROL_PANEL_ADMIN_ID")
@@ -81,7 +83,7 @@ def obtener_stats_semana_todos(semana_iso: int = None, anio: int = None) -> list
             COUNT(r.id) FILTER (WHERE r.aprobado = FALSE)                       AS desaprobados
         FROM oposiciones_resultados r
         LEFT JOIN oposiciones_sesiones s ON r.sesion_id = s.id
-        WHERE r.semana_iso = %s AND r.anio = %s
+        WHERE r.semana_iso = %s AND r.anio = %s AND (r.guild_id = %s OR r.guild_id IS NULL)
         GROUP BY r.interviewer_id
         """,
         (semana_iso, anio),

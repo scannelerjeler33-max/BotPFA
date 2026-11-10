@@ -30,7 +30,7 @@ class ModalVerCoins(discord.ui.Modal, title="Consultar Coins de Usuario"):
         except ValueError: 
             return await interaction.response.send_message("❌ ID inválido.", ephemeral=True)
             
-        coins = obtener_coins(target_id)
+        coins = obtener_coins(target_id, interaction.guild.id)
         coins_f = f"{coins:,.2f}".replace(",", ".")
         await interaction.response.send_message(f"👤 El usuario <@{target_id}> tiene **{coins_f} coins**.", ephemeral=True)
 
@@ -51,7 +51,7 @@ class ModalMonedas(discord.ui.Modal):
         except ValueError: 
             return await interaction.response.send_message("❌ Datos inválidos.", ephemeral=True)
             
-        actualizar_coins(t_id, c if self.tipo == "dar" else -c)
+        actualizar_coins(t_id, c if self.tipo == "dar" else -c, interaction.guild.id)
         await enviar_log(interaction.client, interaction.user, t_id, c, self.tipo)
 
         c_f = f"{c:,.2f}".replace(",", ".")
@@ -110,7 +110,7 @@ class ModalMultipleCoins(discord.ui.Modal, title="Dar Coins a Múltiples Usuario
         for id_str in ids_unicos:
             try:
                 user_id = int(id_str)
-                actualizar_coins(user_id, cantidad)
+                actualizar_coins(user_id, cantidad, interaction.guild.id)
                 await enviar_log(interaction.client, interaction.user, user_id, cantidad, "dar")
                 exitosos.append(user_id)
             except Exception as e:
@@ -172,21 +172,21 @@ class PanelCoins(discord.ui.View):
         
     @discord.ui.button(label="Ver mis coins", style=discord.ButtonStyle.success, custom_id="boton_ver_coins_unico")
     async def ver(self, interaction: discord.Interaction, button: discord.ui.Button):
-        roles_para_ver = obtener_config_list(interaction.guild.id, "ROLES_PARA_VER", [1393678701408817284, 1390022409381216388, 1418013190075322428, 1441595283808063610, 1448157942066184354])
-        if not any(r.id in roles_para_ver for r in interaction.user.roles): 
+        roles_para_ver = obtener_config_list(interaction.guild.id, "ROLES_PARA_VER")
+        if roles_para_ver and not any(r.id in roles_para_ver for r in interaction.user.roles): 
             return await interaction.response.send_message("⛔ Acceso Denegado.", ephemeral=True)
             
-        coins = obtener_coins(interaction.user.id)
+        coins = obtener_coins(interaction.user.id, interaction.guild.id)
         coins_f = f"{coins:,.2f}".replace(",", ".")
         await interaction.response.send_message(f'🪙 Tienes **{coins_f} coins**.', ephemeral=True)
 
     @discord.ui.button(label="Ranking Subdivisiones", style=discord.ButtonStyle.secondary, custom_id="btn_ranking_subdivs_v1")
     async def ranking_subdivs_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        roles_para_ver = obtener_config_list(interaction.guild.id, "ROLES_PARA_VER", [1393678701408817284, 1390022409381216388, 1418013190075322428, 1441595283808063610, 1448157942066184354])
-        if not any(rol.id in roles_para_ver for rol in interaction.user.roles):
+        roles_para_ver = obtener_config_list(interaction.guild.id, "ROLES_PARA_VER")
+        if roles_para_ver and not any(rol.id in roles_para_ver for rol in interaction.user.roles):
             return await interaction.response.send_message("⛔ No tienes el rango necesario para visualizar el ranking.", ephemeral=True)
 
-        cursor.execute("SELECT division, puntos FROM competencia_subdivisiones ORDER BY puntos DESC")
+        cursor.execute("SELECT division, puntos FROM competencia_subdivisiones WHERE guild_id = %s ORDER BY puntos DESC", (interaction.guild.id,))
         stats = cursor.fetchall()
         
         embed = discord.Embed(
@@ -233,12 +233,12 @@ class ViewShop(discord.ui.View):
             
         item_elegido = select.values[0]
         costo = PRECIOS_SHOP[item_elegido]
-        saldo_actual = obtener_coins(interaction.user.id)
+        saldo_actual = obtener_coins(interaction.user.id, interaction.guild.id)
         
         if saldo_actual < costo: 
             return await interaction.response.send_message(f"❌ Saldo insuficiente. Tienes {saldo_actual:.2f}.", ephemeral=True)
 
-        actualizar_coins(interaction.user.id, -costo)
+        actualizar_coins(interaction.user.id, -costo, interaction.guild.id)
         await enviar_log(interaction.client, interaction.user, interaction.user.id, -costo, "compra", item_elegido)
         
         for option in select.options:
@@ -247,21 +247,21 @@ class ViewShop(discord.ui.View):
         mensaje_extra = "⚠️ **PARA RECLAMAR:** Abre TICKET adjuntando una captura."
 
         if "Strike" in item_elegido:
-            cursor.execute("INSERT INTO cupones_usuario (user_id, tipo_cupon, cantidad) VALUES (%s, 'strike', 1) ON CONFLICT (user_id, tipo_cupon) DO UPDATE SET cantidad = cupones_usuario.cantidad + 1", (interaction.user.id,))
+            cursor.execute("INSERT INTO cupones_usuario (guild_id, user_id, tipo_cupon, cantidad) VALUES (%s, %s, 'strike', 1) ON CONFLICT (guild_id, user_id, tipo_cupon) DO UPDATE SET cantidad = cupones_usuario.cantidad + 1", (interaction.guild.id, interaction.user.id))
             conn.commit()
-            await enviar_log_cupon(bot=interaction.client, tipo="shop", usuario=interaction.user, tipo_cupon="strike", item_comprado=item_elegido)
+            await enviar_log_cupon(bot=interaction.client, tipo="shop", usuario=interaction.user, tipo_cupon="strike", item_comprado=item_elegido, guild_id=interaction.guild.id)
             mensaje_extra = "🎟️ **¡SECRETO DESBLOQUEADO!**\nSe ha añadido **1 Cupón de Strike** a tu panel de cupones."
             
         elif "Advertencia" in item_elegido:
-            cursor.execute("INSERT INTO cupones_usuario (user_id, tipo_cupon, cantidad) VALUES (%s, 'advertencia', 1) ON CONFLICT (user_id, tipo_cupon) DO UPDATE SET cantidad = cupones_usuario.cantidad + 1", (interaction.user.id,))
+            cursor.execute("INSERT INTO cupones_usuario (guild_id, user_id, tipo_cupon, cantidad) VALUES (%s, %s, 'advertencia', 1) ON CONFLICT (guild_id, user_id, tipo_cupon) DO UPDATE SET cantidad = cupones_usuario.cantidad + 1", (interaction.guild.id, interaction.user.id))
             conn.commit()
-            await enviar_log_cupon(bot=interaction.client, tipo="shop", usuario=interaction.user, tipo_cupon="advertencia", item_comprado=item_elegido)
+            await enviar_log_cupon(bot=interaction.client, tipo="shop", usuario=interaction.user, tipo_cupon="advertencia", item_comprado=item_elegido, guild_id=interaction.guild.id)
             mensaje_extra = "🎟️ **¡SECRETO DESBLOQUEADO!**\nSe ha añadido **1 Cupón de Advertencia** a tu panel de cupones."
 
         elif "Promote Faccionario" in item_elegido:
-            cursor.execute("INSERT INTO cupones_usuario (user_id, tipo_cupon, cantidad) VALUES (%s, 'promote_faccionario', 1) ON CONFLICT (user_id, tipo_cupon) DO UPDATE SET cantidad = cupones_usuario.cantidad + 1", (interaction.user.id,))
+            cursor.execute("INSERT INTO cupones_usuario (guild_id, user_id, tipo_cupon, cantidad) VALUES (%s, %s, 'promote_faccionario', 1) ON CONFLICT (guild_id, user_id, tipo_cupon) DO UPDATE SET cantidad = cupones_usuario.cantidad + 1", (interaction.guild.id, interaction.user.id))
             conn.commit()
-            await enviar_log_cupon(bot=interaction.client, tipo="shop", usuario=interaction.user, tipo_cupon="promote_faccionario", item_comprado=item_elegido)
+            await enviar_log_cupon(bot=interaction.client, tipo="shop", usuario=interaction.user, tipo_cupon="promote_faccionario", item_comprado=item_elegido, guild_id=interaction.guild.id)
             mensaje_extra = "🎟️ **¡SECRETO DESBLOQUEADO!**\nSe ha añadido **1 Cupón de Promote Faccionario** a tu panel de cupones."
 
         embed_compra = discord.Embed(
@@ -282,7 +282,7 @@ class ViewAirdrop(discord.ui.View):
             child.disabled = True
             
         recompensa = 0.50
-        actualizar_coins(interaction.user.id, recompensa)
+        actualizar_coins(interaction.user.id, recompensa, interaction.guild.id)
         await enviar_log(interaction.client, interaction.user, interaction.user.id, recompensa, "airdrop_reclamado", "Ganador del Airdrop")
         
         embed_ganador = discord.Embed(
@@ -390,7 +390,7 @@ class PanelEconomia(commands.Cog):
             if not canal:
                 continue
                 
-            cursor.execute("SELECT user_id, coins FROM usuarios ORDER BY coins DESC LIMIT 5")
+            cursor.execute("SELECT user_id, coins FROM usuarios WHERE guild_id = %s ORDER BY coins DESC LIMIT 5", (guild.id,))
             top_usuarios = cursor.fetchall()
             
             embed = discord.Embed(

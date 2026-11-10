@@ -121,12 +121,12 @@ class BlackjackGame(discord.ui.View):
         await self.finalizar(interaction, msg, col, res)
 
     async def finalizar(self, interaction, msg, color, resultado):
-        actualizar_coins(self.interaction.user.id, resultado)
+        actualizar_coins(self.interaction.user.id, resultado, self.interaction.guild.id)
         # Cambio para utils.core
         await enviar_log(self.interaction.client, self.interaction.user, self.interaction.user.id, resultado, "blackjack", msg)
         
         embed = self.crear_embed(msg, color, final=True)
-        saldo_final = f"{obtener_coins(self.interaction.user.id):,.2f}".replace(",", ".")
+        saldo_final = f"{obtener_coins(self.interaction.user.id, self.interaction.guild.id):,.2f}".replace(",", ".")
         embed.add_field(name="Saldo Final", value=f"🪙 **{saldo_final}** coins", inline=False)
         
         for child in self.children: child.disabled = True
@@ -166,7 +166,7 @@ class BlackjackStartView(discord.ui.View):
 
         if acceso_concedido:
             apuesta = 0.25
-            saldo = obtener_coins(interaction.user.id)
+            saldo = obtener_coins(interaction.user.id, interaction.guild.id)
             
             if saldo < apuesta:
                 return await interaction.response.send_message(f"❌ Saldo insuficiente.", ephemeral=True)
@@ -242,7 +242,7 @@ async def motor_ruleta(bot, canal, mensaje_panel):
                 if resultado_num in nums: premio += n_amt * 18
                 
             if premio > 0:
-                actualizar_coins(u.id, premio)
+                actualizar_coins(u.id, premio, self.interaction.guild.id)
                 detalle_log = f"🔸 **Apostó:** `{total_bet:.2f}`\n🔹 **Resultado:** ¡GANÓ! ✅\n🏆 **Premio:** `{premio:.2f}`"
                 # Cambio para utils.core
                 await enviar_log(bot, u, u.id, premio - total_bet, "ruleta", detalle_log)
@@ -346,11 +346,11 @@ class ModalRuleta(discord.ui.Modal, title="🎰 Apuestas (Máx 0.10 por casilla)
         if total_bet > 0.10 and len(lista_nums) <= 1:
             return await interaction.response.send_message(f"❌ El límite base es **0.10 coins**. Tu apuesta suma **{total_bet:.2f}**. Solo puedes superar el límite si apuestas a **2 o más números** a la vez.", ephemeral=True)
 
-        saldo = obtener_coins(interaction.user.id)
+        saldo = obtener_coins(interaction.user.id, interaction.guild.id)
         if saldo < total_bet:
             return await interaction.response.send_message(f"❌ Saldo insuficiente. Intentas apostar {total_bet:.2f} y tienes {saldo:.2f}.", ephemeral=True)
 
-        actualizar_coins(interaction.user.id, -total_bet)
+        actualizar_coins(interaction.user.id, -total_bet, interaction.guild.id)
         
         APUESTAS_RONDA.append({
             "user": interaction.user,
@@ -443,11 +443,11 @@ class ViewBlackjack1v1(discord.ui.View):
         if empate:
             embed.add_field(name="⚖️ RESULTADO: EMPATE", value="Ambos jugadores recuperan sus monedas.", inline=False)
             embed.color = discord.Color.light_grey()
-            actualizar_coins(self.p1.id, self.apuesta)
-            actualizar_coins(self.p2.id, self.apuesta)
+            actualizar_coins(self.p1.id, self.apuesta, getattr(self, 'guild_id', None))
+            actualizar_coins(self.p2.id, self.apuesta, getattr(self, 'guild_id', None))
         else:
             embed.add_field(name="🏆 RESULTADO: ¡TENEMOS GANADOR!", value=f"{ganador.mention} se lleva el pozo de **{self.apuesta * 2:.2f} coins**.\n*{razon}*", inline=False)
-            actualizar_coins(ganador.id, self.apuesta * 2)
+            actualizar_coins(ganador.id, self.apuesta * 2, getattr(self, 'guild_id', None))
             # Cambio para utils.core (Se envian dos logs, uno al ganador y uno al perdedor)
             await enviar_log(interaction.client, ganador, perdedor.id, self.apuesta, "blackjack", f"1v1 - Ganó contra {perdedor.display_name}")
             await enviar_log(interaction.client, perdedor, ganador.id, -self.apuesta, "blackjack", f"1v1 - Perdió contra {ganador.display_name}")
@@ -515,7 +515,7 @@ class PanelBJ1v1(discord.ui.View):
                 return await interaction.response.send_message("🕒 **Cerrado**: El lobby competitivo solo abre de **00:00 a 02:00 AM** (Hora Argentina).", ephemeral=True)
 
         apuesta_fija = 0.25
-        saldo = obtener_coins(interaction.user.id)
+        saldo = obtener_coins(interaction.user.id, interaction.guild.id)
         
         if saldo < apuesta_fija:
             return await interaction.response.send_message(f"❌ No tienes suficientes coins. Necesitas al menos **{apuesta_fija}**.", ephemeral=True)
@@ -535,11 +535,11 @@ class PanelBJ1v1(discord.ui.View):
             except:
                 pass
             
-            if obtener_coins(p1.id) >= apuesta_fija:
+            if obtener_coins(p1.id, guild.id) >= apuesta_fija:
                 p2 = interaction.user
 
-                actualizar_coins(p1.id, -apuesta_fija)
-                actualizar_coins(p2.id, -apuesta_fija)
+                actualizar_coins(p1.id, -apuesta_fija, guild.id)
+                actualizar_coins(p2.id, -apuesta_fija, guild.id)
 
                 view_game = ViewBlackjack1v1(p1, p2, apuesta_fija)
                 embed_game = view_game.generar_embed()

@@ -58,13 +58,17 @@ def generar_strike_id(longitud=13):
             return nuevo_id
 
 
-def contar_strikes_usuario(user_id: int) -> int:
-    """Retorna la cantidad total de strikes activos de un usuario."""
-    cursor_strikes.execute("SELECT COUNT(*) FROM strikes WHERE user_id = %s", (user_id,))
+ORIGINAL_GUILD_ID = int(os.getenv("GUILD_ID", "1132046806595944488") or 1132046806595944488)
+
+def contar_strikes_usuario(user_id: int, guild_id: int = None) -> int:
+    """Retorna la cantidad total de strikes activos de un usuario en un servidor."""
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
+    cursor_strikes.execute("SELECT COUNT(*) FROM strikes WHERE user_id = %s AND guild_id = %s", (user_id, guild_id))
     return cursor_strikes.fetchone()[0]
 
 
-def agregar_strike(user_id: int, razon: str, admin_id: int) -> tuple:
+def agregar_strike(user_id: int, razon: str, admin_id: int, guild_id: int = None) -> tuple:
+    if guild_id is None: guild_id = ORIGINAL_GUILD_ID
     """Agrega un strike a la base de datos. Retorna (strike_id, total_strikes)."""
     strike_id = generar_strike_id()
     ahora = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-3)))
@@ -72,35 +76,35 @@ def agregar_strike(user_id: int, razon: str, admin_id: int) -> tuple:
 
     try:
         cursor_strikes.execute(
-            "INSERT INTO strikes (strike_id, user_id, razon, admin_id, fecha) VALUES (%s, %s, %s, %s, %s)",
-            (strike_id, user_id, razon, admin_id, fecha_str),
+            "INSERT INTO strikes (strike_id, guild_id, user_id, razon, admin_id, fecha) VALUES (%s, %s, %s, %s, %s, %s)",
+            (strike_id, guild_id, user_id, razon, admin_id, fecha_str),
         )
         # Registrar en historial
         cursor_strikes.execute(
-            "INSERT INTO strikes_historial (strike_id, user_id, razon, admin_id, fecha, accion) VALUES (%s, %s, %s, %s, %s, %s)",
-            (strike_id, user_id, razon, admin_id, fecha_str, "AGREGADO"),
+            "INSERT INTO strikes_historial (strike_id, guild_id, user_id, razon, admin_id, fecha, accion) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (strike_id, guild_id, user_id, razon, admin_id, fecha_str, "AGREGADO"),
         )
         conn_strikes.commit()
     except psycopg2.errors.UniqueViolation:
         conn_strikes.rollback()
         reparar_secuencias()
         cursor_strikes.execute(
-            "INSERT INTO strikes (strike_id, user_id, razon, admin_id, fecha) VALUES (%s, %s, %s, %s, %s)",
-            (strike_id, user_id, razon, admin_id, fecha_str),
+            "INSERT INTO strikes (strike_id, guild_id, user_id, razon, admin_id, fecha) VALUES (%s, %s, %s, %s, %s, %s)",
+            (strike_id, guild_id, user_id, razon, admin_id, fecha_str),
         )
         cursor_strikes.execute(
-            "INSERT INTO strikes_historial (strike_id, user_id, razon, admin_id, fecha, accion) VALUES (%s, %s, %s, %s, %s, %s)",
-            (strike_id, user_id, razon, admin_id, fecha_str, "AGREGADO"),
+            "INSERT INTO strikes_historial (strike_id, guild_id, user_id, razon, admin_id, fecha, accion) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (strike_id, guild_id, user_id, razon, admin_id, fecha_str, "AGREGADO"),
         )
         conn_strikes.commit()
 
-    total = contar_strikes_usuario(user_id)
+    total = contar_strikes_usuario(user_id, guild_id)
     return strike_id, total, fecha_str
 
 
 def eliminar_strike(strike_id: str) -> dict | None:
     """Elimina un strike por su ID. Retorna los datos del strike eliminado o None si no existe."""
-    cursor_strikes.execute("SELECT strike_id, user_id, razon, admin_id, fecha FROM strikes WHERE strike_id = %s", (strike_id,))
+    cursor_strikes.execute("SELECT strike_id, user_id, razon, admin_id, fecha, guild_id FROM strikes WHERE strike_id = %s", (strike_id,))
     resultado = cursor_strikes.fetchone()
     if not resultado:
         return None
@@ -116,7 +120,7 @@ def eliminar_strike(strike_id: str) -> dict | None:
     cursor_strikes.execute("DELETE FROM strikes WHERE strike_id = %s", (strike_id,))
     conn_strikes.commit()
 
-    datos["strikes_restantes"] = contar_strikes_usuario(datos["user_id"])
+    datos["strikes_restantes"] = contar_strikes_usuario(datos["user_id"], datos.get("guild_id", guild_id))
     return datos
 
 
@@ -136,7 +140,7 @@ def eliminar_strike_con_motivo(strike_id: str, admin_eliminacion_id: int, motivo
 
 def buscar_strike(strike_id: str) -> dict | None:
     """Busca un strike por su ID sin eliminarlo. Retorna los datos o None."""
-    cursor_strikes.execute("SELECT strike_id, user_id, razon, admin_id, fecha FROM strikes WHERE strike_id = %s", (strike_id,))
+    cursor_strikes.execute("SELECT strike_id, user_id, razon, admin_id, fecha, guild_id FROM strikes WHERE strike_id = %s", (strike_id,))
     resultado = cursor_strikes.fetchone()
     if not resultado:
         return None
@@ -196,6 +200,7 @@ async def _finalizar_strike(
         user_id=target_id,
         razon=razon_texto,
         admin_id=interaction.user.id,
+        guild_id=interaction.guild.id,
     )
 
     canal_strikes_id = obtener_config_int(interaction.guild.id, "CANAL_STRIKES_ID", CANAL_STRIKES_ID)

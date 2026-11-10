@@ -452,7 +452,7 @@ class ModalNuevoMiembro(discord.ui.Modal, title="Nuevo Miembro PFA"):
         if miembro is None:
             return
 
-        if _esta_en_blacklist(miembro.id):
+        if _esta_en_blacklist(miembro.id, interaction.guild.id):
             return await interaction.followup.send(
                 "⛔ El usuario esta en la blacklist PFA. Retiralo primero de la blacklist.",
                 ephemeral=True,
@@ -1112,7 +1112,7 @@ class ModalUnblacklistPFA(discord.ui.Modal, title="Quitar Blacklist PFA"):
                 ephemeral=True,
             )
 
-        estaba_registrado = _esta_en_blacklist(miembro.id)
+        estaba_registrado = _esta_en_blacklist(miembro.id, interaction.guild.id)
         tenia_rol = rol_blacklist in miembro.roles
         if not estaba_registrado and not tenia_rol:
             return await interaction.followup.send(

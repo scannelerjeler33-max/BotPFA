@@ -236,9 +236,9 @@ class ModalSumarMisionURA(discord.ui.Modal, title="Sumar Misión a U.R.A"):
             return await interaction.response.send_message("❌ ID o cantidad inválida.", ephemeral=True)
 
         cursor_ura.execute("""
-            INSERT INTO ura_top_misiones (user_id, misiones)
-            VALUES (%s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET misiones = ura_top_misiones.misiones + %s
+            INSERT INTO ura_top_misiones (guild_id, user_id, misiones)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (guild_id, user_id) DO UPDATE SET misiones = ura_top_misiones.misiones + %s
         """, (target_id, cant, cant))
         conn_ura.commit()
 
@@ -675,7 +675,7 @@ class ViewPanelGestionURA(discord.ui.View):
     # --- NUEVOS BOTONES DE TOP MISIONES ---
     @discord.ui.button(label="Top Misiones", style=discord.ButtonStyle.primary, emoji="🏆", custom_id="panel_ura_top_misiones_v1", row=1)
     async def btn_top_misiones(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cursor_ura.execute("SELECT user_id, misiones FROM ura_top_misiones WHERE misiones > 0 ORDER BY misiones DESC LIMIT 15")
+        cursor_ura.execute("SELECT user_id, misiones FROM ura_top_misiones WHERE guild_id = %s AND misiones > 0 ORDER BY misiones DESC LIMIT 15", (interaction.guild.id,))
         resultados = cursor_ura.fetchall()
 
         if not resultados:
@@ -757,7 +757,7 @@ class GestionURA(commands.Cog):
     async def reset_top_ura_semanal(self):
         ahora = discord.utils.utcnow()
         if ahora.weekday() == 6:  # 6 equivale a Domingo
-            cursor_ura.execute("SELECT user_id, misiones FROM ura_top_misiones WHERE misiones > 0 ORDER BY misiones DESC LIMIT 15")
+            cursor_ura.execute("SELECT user_id, misiones FROM ura_top_misiones WHERE guild_id = %s AND misiones > 0 ORDER BY misiones DESC LIMIT 15", (interaction.guild.id,))
             resultados = cursor_ura.fetchall()
 
             for guild in self.bot.guilds:
@@ -782,7 +782,7 @@ class GestionURA(commands.Cog):
                         await canal.send("🏆 **TOP MISIONES U.R.A - CIERRE SEMANAL**\nEsta semana no se registraron misiones completadas. Contador reiniciado a 0.")
 
             # Limpiar la tabla para empezar la nueva semana
-            cursor_ura.execute("DELETE FROM ura_top_misiones")
+            cursor_ura.execute("DELETE FROM ura_top_misiones WHERE guild_id = %s", (guild.id,))
             conn_ura.commit()
             print("🧹 [SISTEMA] Top URA semanal reiniciado (Domingo 12:00 Arg).")
 
